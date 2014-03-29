@@ -3,20 +3,27 @@
 #include <math.h>
 #include "mex.h"
 #include <vector>
-//#include "stdafx.h"
 #include <stdio.h>
-//#include <iostream>
-//#include "matrix.h"
 
-using namespace std;   
-//FILE *fpr; 
+using namespace std;  
+
+double round(double number)
+{
+    return number < 0.0 ? ceil(number - 0.5) : floor(number + 0.5);
+}
 
 void HoG(double *pixels, double *params, int *img_size, double *dth_des)
 {    
-	double block_norm, pi = 3.1415926536;    
-    int nb_bins = 9, bloques = 11, block_size = (int) params[2], orient = (int) params[3], img_width  = 50, img_height = 50, des_indx = 0, indx=0;    
-	double Gsx[50][50]={0},Gsy[50][50]={0}, Gx[50][50]={0},Gy[50][50]={0},Orient=0, Magni[50][50]={0},vgsx,vgsy,vmagni;
-          
+	double block_norm=0, pi = 3.1415926536, block_norm2=0;
+    int nb_bins = 9, bloques = 11, block_size = (int) params[2], img_width  = 50, img_height = 50, des_indx = 0, indx=0;    	
+    double Orient = 0, vgsx ,vgsy ,vmagni;
+
+	vector<vector<double>> Gsx(50, vector<double>(50,0));
+    vector<vector<double>> Gsy(50, vector<double>(50,0));
+	vector<vector<double>> Gx(50, vector<double>(50,0));
+	vector<vector<double>> Gy(50, vector<double>(50,0));
+	vector<vector<double>> Magni(50, vector<double>(50,0));
+		
     //Calculate gradients (zero padding)	
 	   for( int y=0; y<img_width; y++)
 	   {    //mascara en Y:[-1 0 1]'        
@@ -41,9 +48,9 @@ void HoG(double *pixels, double *params, int *img_size, double *dth_des)
 		}
 	     
 	   int i0, i1, j0, j1;
-	   for(int x=0; x<img_width-bloques; x+=4)
+	   for(int x=1; x<img_width-bloques; x+=6)
 	   {  
-			for(int y=0; y<img_height-bloques; y+=4)
+			for(int y=1; y<img_height-bloques; y+=6)
 			{				
 				//Dividimos en bloques a la imagen 11x11
 				double bin[9]={0};
@@ -53,15 +60,13 @@ void HoG(double *pixels, double *params, int *img_size, double *dth_des)
 					for(int j=0; j<bloques; j++)
 					{
 						//Calculamos las sumatorias con los vecinos locales 3x3 de cada pixel
-						if ((x+i-1) >= 0) i0 = x+i-1;
-						else   i0 = 0;
-
+						i0 = x+i-1;
+						
 						if ((x+i+1) < img_width)  i1 = x+i+1;
 						else i1 = img_width-1;
 
-						if ((y+j-1) >= 0)  j0 = y+j-1;
-						else j0= 0;
-
+						j0 = y+j-1;
+						
 						if ((y+j+1) < img_height)  j1 = y+j+1;
 						else j1 = img_height-1;						
 
@@ -79,35 +84,51 @@ void HoG(double *pixels, double *params, int *img_size, double *dth_des)
 						}
 
 						//Calculamos la orientacion promedio y Convertir de radianes a grados
-						Orient= atan2(vgsy,vgsx)*180/pi;	
+						Orient= atan2(vgsy,vgsx)*180/pi;//desde -179.9 ~ 179.999	
 			
 						//quantizamos la orientacion promedio son 180 grados máximo en 9 bins
-						indx= (int)floor((Orient+180)/40)-1;
+						indx=(int) round((Orient+180)/40)-1;
+
+						if (indx < 0)	
+							indx=8;
+
 						bin[indx]+= vmagni;
+
+				    /*dth_des[des_indx]=indx;
+					des_indx++;*/
 					}
 				}
-			//Hacemos la normalizacion del histograma
+			//Hacemos la normalizacion L2-Hys
 			   block_norm=0;
-			   
+			   block_norm2=0;			   
+			   //L2-norm---------------------------------------------
 			   for(int i=0;i<nb_bins;i++)
 				   block_norm+= bin[i]*bin[i];
 			   
 			   block_norm= sqrt(block_norm);
-			   if (block_norm>0)
+
+			   for(int i=0;i<nb_bins;i++)
 			   {
-				   for(int i=0;i<nb_bins;i++)
-				   {
+					if (block_norm>0)	
+					{
 						bin[i]= bin[i]/block_norm;
-						if (bin[i]>0.2)
+						if (bin[i]>0.2)//clip value
 							bin[i]=0.2;
-				   }
-			   }
-				//Concatenamos a los histogramas
-				for (int i=0; i<nb_bins; i++)
+					}
+			       
+					block_norm2+= bin[i]*bin[i];						
+			   }  
+			   //re-normalizamos   y concatenamoss--------------------------------------				   
+				block_norm2= sqrt(block_norm2);
+
+				for(int i=0;i<nb_bins;i++)
 				{
-					dth_des[des_indx]= bin[i];
-					des_indx++;
-				}				
+					if (block_norm2>0)								
+						bin[i]= bin[i]/block_norm2;		
+									
+					dth_des[des_indx]=bin[i];
+					des_indx++;					
+				}		
 			}
 	   }	 
 }
@@ -136,10 +157,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) {
     }
     else {
         params = new double[5];
-        params[0]=8;
+        params[0]=9;
         params[1]=11;
         params[2]=2;
-        params[3]=1;
+        params[3]=0;
         params[4]=0.2;
     }
     
@@ -148,7 +169,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]) {
 
 	//int tam= pow(round((img_size[0]-params[1])/4),2)*params[0];
   
-    plhs[0] = mxCreateDoubleMatrix(900, 1, mxREAL);
+    plhs[0] = mxCreateDoubleMatrix(441, 1, mxREAL);
     dth_des = mxGetPr(plhs[0]);
     
     HoG(pixels, params, img_size, dth_des);
